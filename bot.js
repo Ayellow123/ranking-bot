@@ -5,9 +5,13 @@ const { Client, GatewayIntentBits } = require("discord.js");
 
 const WORLD = "pl228";
 const TARGET_ALLY_TAGS = ["LN", "LN.", "LN!"];
-const CHANNEL_ID = process.env.CHANNEL_ID;
 
-const SAVE_FILE = "./farm-ranking-history.json";
+const CHANNELS = {
+  farm: process.env.FARM_CHANNEL_ID,
+  attack: process.env.ATTACK_CHANNEL_ID,
+  defense: process.env.DEFENSE_CHANNEL_ID,
+  all: process.env.ALL_CHANNEL_ID
+};
 
 const client = new Client({
   intents: [GatewayIntentBits.Guilds]
@@ -15,42 +19,94 @@ const client = new Client({
 
 client.once("ready", async () => {
   console.log("Bot zalogowany jako " + client.user.tag);
-
-  await wyslijRankingFarmiacych();
-
-  ustawCodziennyRanking();
+  ustawCodzienneRankingi();
 });
 
+function ustawCodzienneRankingi() {
+  setInterval(async () => {
+    const now = new Date();
+    const h = now.getHours();
+    const m = now.getMinutes();
+
+    if (h === 0 && m === 10) await wyslijRankingFarmiacych();
+    if (h === 0 && m === 15) await wyslijRankingMapowy("attack");
+    if (h === 0 && m === 20) await wyslijRankingMapowy("defense");
+    if (h === 0 && m === 25) await wyslijRankingMapowy("all");
+  }, 60 * 1000);
+}
+
 async function wyslijRankingFarmiacych() {
-  const channel = await client.channels.fetch(CHANNEL_ID);
+  const channel = await client.channels.fetch(CHANNELS.farm);
+  const top = await pobierzTopFarmiacych(20);
 
-  const topFarm = await pobierzTopFarmiacych(20);
+  if (!top.length) return;
 
-  if (!topFarm.length) {
-    console.log("Brak danych farmerów.");
-    return;
-  }
+  dodajZmianyPozycji(top, "./farm-ranking-history.json");
 
-  dodajZmianyPozycji(topFarm);
-
-  const farmerDnia = topFarm[0];
-  const najwiekszyAwans = znajdzNajwiekszyAwans(topFarm);
+  const lider = top[0];
+  const awans = znajdzNajwiekszyAwans(top);
 
   const content =
     "🌾 **TOP 20 Farmerów farmiących dziennie z Rodziny Plemion LN** 🌾\n" +
-    formatujRanking(topFarm) +
+    formatujRanking(top, true) +
     "\n👑 **Farmer dnia:** " +
-    `${farmerDnia.name} [${farmerDnia.allyTag}] - ${formatNumber(farmerDnia.value)} - ${farmerDnia.date}` +
+    `${lider.name} [${lider.allyTag}] - ${formatNumber(lider.value)} - ${lider.date}` +
     "\n📈 **Największy awans:** " +
-    (najwiekszyAwans
-      ? `${najwiekszyAwans.name} [${najwiekszyAwans.allyTag}] - ▲${najwiekszyAwans.awans}`
-      : "brak awansów");
+    (awans ? `${awans.name} [${awans.allyTag}] - ▲${awans.awans}` : "brak awansów");
 
   await channel.send(content);
-
-  zapiszRanking(topFarm);
+  zapiszRanking(top, "./farm-ranking-history.json");
 
   console.log("Wysłano ranking farmerów.");
+}
+
+async function wyslijRankingMapowy(type) {
+  const config = {
+    attack: {
+      file: "kill_att.txt",
+      channel: CHANNELS.attack,
+      history: "./attack-ranking-history.json",
+      title: "⚔️ **TOP 20 Atakujących z Rodziny Plemion LN** ⚔️",
+      leader: "Atakujący dnia"
+    },
+    defense: {
+      file: "kill_def.txt",
+      channel: CHANNELS.defense,
+      history: "./defense-ranking-history.json",
+      title: "🛡️ **TOP 20 Obrońców z Rodziny Plemion LN** 🛡️",
+      leader: "Obrońca dnia"
+    },
+    all: {
+      file: "kill_all.txt",
+      channel: CHANNELS.all,
+      history: "./all-ranking-history.json",
+      title: "🏆 **TOP 20 RA z Rodziny Plemion LN** 🏆",
+      leader: "RA dnia"
+    }
+  }[type];
+
+  const channel = await client.channels.fetch(config.channel);
+  const top = await pobierzTopMapowy(config.file, 20);
+
+  if (!top.length) return;
+
+  dodajZmianyPozycji(top, config.history);
+
+  const lider = top[0];
+  const awans = znajdzNajwiekszyAwans(top);
+
+  const content =
+    config.title + "\n" +
+    formatujRanking(top, false) +
+    "\n👑 **" + config.leader + ":** " +
+    `${lider.name} [${lider.allyTag}] - ${formatNumber(lider.value)}` +
+    "\n📈 **Największy awans:** " +
+    (awans ? `${awans.name} [${awans.allyTag}] - ▲${awans.awans}` : "brak awansów");
+
+  await channel.send(content);
+  zapiszRanking(top, config.history);
+
+  console.log("Wysłano ranking: " + type);
 }
 
 async function pobierzTopFarmiacych(limit) {
@@ -60,14 +116,10 @@ async function pobierzTopFarmiacych(limit) {
     const url =
       `https://${WORLD}.plemiona.pl/guest.php?village=null&screen=ranking&mode=in_a_day&type=loot_res&offset=${offset}`;
 
-    console.log("Pobieram offset " + offset);
+    console.log("Farm offset " + offset);
 
     const res = await fetch(url);
-
-    if (!res.ok) {
-      console.log("Błąd pobierania offset " + offset + ": " + res.status);
-      break;
-    }
+    if (!res.ok) break;
 
     const html = await res.text();
     const rows = parsujRankingFarmienia(html);
@@ -78,7 +130,7 @@ async function pobierzTopFarmiacych(limit) {
       }
     }
 
-    console.log("Znaleziono LN: " + wynik.length + "/" + limit);
+    console.log("Znaleziono farmerów LN: " + wynik.length + "/" + limit);
 
     if (wynik.length >= limit) break;
 
@@ -86,6 +138,39 @@ async function pobierzTopFarmiacych(limit) {
   }
 
   return wynik.slice(0, limit);
+}
+
+async function pobierzTopMapowy(fileName, limit) {
+  const base = `https://${WORLD}.plemiona.pl/map/`;
+
+  const [allyText, playerText, rankingText] = await Promise.all([
+    fetch(base + "ally.txt").then(r => r.text()),
+    fetch(base + "player.txt").then(r => r.text()),
+    fetch(base + fileName).then(r => r.text())
+  ]);
+
+  const allyMap = parseAllyMap(allyText);
+  const playerMap = parsePlayerMap(playerText);
+  const rankingMap = parseRankingMap(rankingText);
+
+  const players = [];
+
+  Object.keys(playerMap).forEach(playerId => {
+    const p = playerMap[playerId];
+    const allyTag = allyMap[p.allyId];
+
+    if (TARGET_ALLY_TAGS.includes(allyTag)) {
+      players.push({
+        name: p.name,
+        allyTag,
+        value: rankingMap[playerId] || 0
+      });
+    }
+  });
+
+  return players
+    .sort((a, b) => b.value - a.value)
+    .slice(0, limit);
 }
 
 function parsujRankingFarmienia(html) {
@@ -118,20 +203,70 @@ function parsujRankingFarmienia(html) {
     const date = tdMatches[4].replace(/\.20\d{2}/, "");
 
     if (name && allyTag && !isNaN(value)) {
-      rows.push({
-        name,
-        allyTag,
-        value,
-        date
-      });
+      rows.push({ name, allyTag, value, date });
     }
   }
 
   return rows;
 }
 
-function dodajZmianyPozycji(list) {
-  const oldList = wczytajRanking();
+function parseAllyMap(data) {
+  const map = {};
+
+  data.split("\n").forEach(line => {
+    if (!line.trim()) return;
+
+    const p = line.split(",");
+    if (p.length < 3) return;
+
+    const allyId = String(p[0]).trim();
+    const tag = decodeURIComponent(p[2].replace(/\+/g, " ")).trim();
+
+    map[allyId] = tag;
+  });
+
+  return map;
+}
+
+function parsePlayerMap(data) {
+  const map = {};
+
+  data.split("\n").forEach(line => {
+    if (!line.trim()) return;
+
+    const p = line.split(",");
+    if (p.length < 3) return;
+
+    const id = String(p[0]).trim();
+    const name = decodeURIComponent(p[1].replace(/\+/g, " ")).trim();
+    const allyId = String(p[2]).trim();
+
+    map[id] = { name, allyId };
+  });
+
+  return map;
+}
+
+function parseRankingMap(data) {
+  const map = {};
+
+  data.split("\n").forEach(line => {
+    if (!line.trim()) return;
+
+    const p = line.split(",");
+    if (p.length < 3) return;
+
+    const playerId = String(p[1]).trim();
+    const value = parseInt(String(p[2]).replace(/[^0-9]/g, ""), 10);
+
+    map[playerId] = isNaN(value) ? 0 : value;
+  });
+
+  return map;
+}
+
+function dodajZmianyPozycji(list, file) {
+  const oldList = wczytajRanking(file);
   const oldPositions = {};
 
   oldList.forEach((p, i) => {
@@ -173,7 +308,7 @@ function znajdzNajwiekszyAwans(list) {
   return best;
 }
 
-function formatujRanking(list) {
+function formatujRanking(list, showDate) {
   let text = "```\n";
 
   list.forEach((p, i) => {
@@ -187,14 +322,13 @@ function formatujRanking(list) {
     const line = place + ". " + name + " [" + p.allyTag + "]";
     const points = formatNumber(p.value);
     const change = p.change || "-";
-    const date = p.date || "";
+    const date = showDate ? " " + (p.date || "") : "";
 
     text +=
       line.padEnd(32, " ") +
       points.padStart(10, " ") +
       " " +
       change.padEnd(4, " ") +
-      " " +
       date +
       "\n";
   });
@@ -216,33 +350,23 @@ function czyscHtml(text) {
     .trim();
 }
 
-function wczytajRanking() {
-  if (!fs.existsSync(SAVE_FILE)) return [];
+function wczytajRanking(file) {
+  if (!fs.existsSync(file)) return [];
 
   try {
-    return JSON.parse(fs.readFileSync(SAVE_FILE, "utf8"));
+    return JSON.parse(fs.readFileSync(file, "utf8"));
   } catch {
     return [];
   }
 }
 
-function zapiszRanking(list) {
+function zapiszRanking(list, file) {
   const simple = list.map(p => ({
     name: p.name,
     allyTag: p.allyTag
   }));
 
-  fs.writeFileSync(SAVE_FILE, JSON.stringify(simple, null, 2), "utf8");
-}
-
-function ustawCodziennyRanking() {
-  setInterval(async () => {
-    const now = new Date();
-
-    if (now.getHours() === 0 && now.getMinutes() === 10) {
-      await wyslijRankingFarmiacych();
-    }
-  }, 60 * 1000);
+  fs.writeFileSync(file, JSON.stringify(simple, null, 2), "utf8");
 }
 
 function formatNumber(value) {
