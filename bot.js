@@ -1,10 +1,12 @@
 require("dotenv").config();
 
 const fs = require("fs");
+const path = require("path");
 const { Client, GatewayIntentBits } = require("discord.js");
 
 const WORLD = "pl228";
 const TARGET_ALLY_TAGS = ["LN", "LN.", "LN!"];
+const DATA_DIR = process.env.DATA_DIR || ".";
 
 const CHANNELS = {
   farm: process.env.FARM_CHANNEL_ID,
@@ -13,31 +15,34 @@ const CHANNELS = {
   all: process.env.ALL_CHANNEL_ID
 };
 
+if (!fs.existsSync(DATA_DIR)) {
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+}
+
 const client = new Client({
   intents: [GatewayIntentBits.Guilds]
 });
 
 client.once("ready", async () => {
   console.log("Bot zalogowany jako " + client.user.tag);
-
- await wyslijRankingFarmiacych();
-  await wyslijRankingMapowy("attack");
-  await wyslijRankingMapowy("defense");
-  await wyslijRankingMapowy("all");
-
   ustawCodzienneRankingi();
 });
 
 function ustawCodzienneRankingi() {
   setInterval(async () => {
-    const now = new Date();
-    const h = now.getHours();
-    const m = now.getMinutes();
+    const czasPL = new Intl.DateTimeFormat("pl-PL", {
+      timeZone: "Europe/Warsaw",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false
+    }).format(new Date());
 
-    if (h === 0 && m === 10) await wyslijRankingFarmiacych();
-    if (h === 0 && m === 15) await wyslijRankingMapowy("attack");
-    if (h === 0 && m === 20) await wyslijRankingMapowy("defense");
-    if (h === 0 && m === 25) await wyslijRankingMapowy("all");
+    console.log("Czas PL:", czasPL);
+
+    if (czasPL === "00:10") await wyslijRankingFarmiacych();
+    if (czasPL === "00:15") await wyslijRankingMapowy("attack");
+    if (czasPL === "00:20") await wyslijRankingMapowy("defense");
+    if (czasPL === "00:25") await wyslijRankingMapowy("all");
   }, 60 * 1000);
 }
 
@@ -50,7 +55,9 @@ async function wyslijRankingFarmiacych() {
     return;
   }
 
-  dodajZmianyPozycji(top, "./farm-ranking-history.json");
+  const historyFile = getHistoryFile("farm-ranking-history.json");
+
+  dodajZmianyPozycji(top, historyFile);
 
   const lider = top[0];
   const awans = znajdzNajwiekszyAwans(top);
@@ -64,7 +71,7 @@ async function wyslijRankingFarmiacych() {
     (awans ? `${awans.name} [${awans.allyTag}] - ▲${awans.awans}` : "brak awansów");
 
   await channel.send(content);
-  zapiszRanking(top, "./farm-ranking-history.json");
+  zapiszRanking(top, historyFile);
 
   console.log("Wysłano ranking farmerów.");
 }
@@ -74,21 +81,21 @@ async function wyslijRankingMapowy(type) {
     attack: {
       file: "kill_att.txt",
       channel: CHANNELS.attack,
-      history: "./attack-ranking-history.json",
+      history: getHistoryFile("attack-ranking-history.json"),
       title: "⚔️ **TOP 20 Atakujących z Rodziny Plemion LN** ⚔️",
       leader: "Atakujący dnia"
     },
     defense: {
       file: "kill_def.txt",
       channel: CHANNELS.defense,
-      history: "./defense-ranking-history.json",
+      history: getHistoryFile("defense-ranking-history.json"),
       title: "🛡️ **TOP 20 Obrońców z Rodziny Plemion LN** 🛡️",
       leader: "Obrońca dnia"
     },
     all: {
       file: "kill_all.txt",
       channel: CHANNELS.all,
-      history: "./all-ranking-history.json",
+      history: getHistoryFile("all-ranking-history.json"),
       title: "🏆 **TOP 20 RA z Rodziny Plemion LN** 🏆",
       leader: "RA dnia"
     }
@@ -360,6 +367,10 @@ function czyscHtml(text) {
     .replace(/&#39;/g, "'")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function getHistoryFile(fileName) {
+  return path.join(DATA_DIR, fileName);
 }
 
 function wczytajRanking(file) {
