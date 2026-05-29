@@ -19,6 +19,13 @@ const client = new Client({
 
 client.once("ready", async () => {
   console.log("Bot zalogowany jako " + client.user.tag);
+
+  // TEST - po starcie wysyla wszystkie 4 rankingi
+  await wyslijRankingFarmiacych();
+  await wyslijRankingMapowy("attack");
+  await wyslijRankingMapowy("defense");
+  await wyslijRankingMapowy("all");
+
   ustawCodzienneRankingi();
 });
 
@@ -39,7 +46,10 @@ async function wyslijRankingFarmiacych() {
   const channel = await client.channels.fetch(CHANNELS.farm);
   const top = await pobierzTopFarmiacych(20);
 
-  if (!top.length) return;
+  if (!top.length) {
+    console.log("Brak danych farmerów.");
+    return;
+  }
 
   dodajZmianyPozycji(top, "./farm-ranking-history.json");
 
@@ -88,7 +98,10 @@ async function wyslijRankingMapowy(type) {
   const channel = await client.channels.fetch(config.channel);
   const top = await pobierzTopMapowy(config.file, 20);
 
-  if (!top.length) return;
+  if (!top.length) {
+    console.log("Brak danych rankingu: " + type);
+    return;
+  }
 
   dodajZmianyPozycji(top, config.history);
 
