@@ -20,6 +20,10 @@ const client = new Client({
 client.once("ready", async () => {
   console.log("Bot zalogowany jako " + client.user.tag);
 
+ await wyslijRankingFarmiacych();
+  await wyslijRankingMapowy("attack");
+  await wyslijRankingMapowy("defense");
+  await wyslijRankingMapowy("all");
 
   ustawCodzienneRankingi();
 });
